@@ -150,19 +150,19 @@ Selectors route based on: user preference when explicitly set, then scored ranki
 
 ### Tool Inventory by Category
 
-**Analysis (4):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand (CLIP/BLIP-2)
+**Analysis (5):** transcriber (WhisperX), scene_detect, frame_sampler, video_understand (CLIP/BLIP-2), higgsfield_virality (Virality Predictor)
 
-**Audio (8):** elevenlabs_tts, google_tts, openai_tts, piper_tts, tts_selector, music_gen, audio_mixer, audio_enhance
+**Audio (10):** elevenlabs_tts, google_tts, openai_tts, piper_tts, tts_selector, music_gen, audio_mixer, audio_enhance, higgsfield_music (Sonilo), higgsfield_sfx (Mirelo)
 
 **Avatar (2):** talking_head (SadTalker/MuseTalk), lip_sync (Wav2Lip)
 
 **Enhancement (5):** upscale (Real-ESRGAN), bg_remove (rembg/U2Net), face_enhance, face_restore (CodeFormer/GFPGAN), color_grade (FFmpeg LUTs)
 
-**Graphics (13):** flux_image, grok_image, google_imagen, openai_image, recraft_image, local_diffusion, pexels_image, pixabay_image, image_selector, code_snippet, diagram_gen, math_animate (ManimCE), image_gen (deprecated)
+**Graphics (15):** flux_image, grok_image, google_imagen, openai_image, recraft_image, higgsfield_image, local_diffusion, pexels_image, pixabay_image, image_selector, code_snippet, diagram_gen, math_animate (ManimCE), higgsfield_3d (image-to-3D), image_gen (deprecated)
 
 **Subtitle (1):** subtitle_gen
 
-**Video (18):** grok_video, heygen_video, higgsfield_video, veo_video, kling_video, runway_video, minimax_video, wan_video, hunyuan_video, cogvideo_video, ltx_video_local, ltx_video_modal, pexels_video, pixabay_video, video_selector, video_compose (FFmpeg), video_stitch, video_trimmer
+**Video (19):** grok_video, heygen_video, higgsfield_video, higgsfield_marketing (Marketing Studio ads), veo_video, kling_video, runway_video, minimax_video, wan_video, hunyuan_video, cogvideo_video, ltx_video_local, ltx_video_modal, pexels_video, pixabay_video, video_selector, video_compose (FFmpeg), video_stitch, video_trimmer
 
 ---
 
@@ -391,7 +391,7 @@ All config is validated via Pydantic models in `lib/config_model.py`.
 | `PIXABAY_API_KEY` | pixabay_image, pixabay_video | Stock media |
 | `GOOGLE_API_KEY` | google_imagen, google_tts | Google Imagen images, Google Cloud TTS |
 | `RUNWAY_API_KEY` | runway_video | Runway Gen-3/Gen-4 direct |
-| `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` | higgsfield_video | Higgsfield multi-model video |
+| _(none — `higgsfield` CLI session)_ | higgsfield_video, higgsfield_image, higgsfield_music, higgsfield_sfx, higgsfield_3d, higgsfield_marketing, higgsfield_virality | Higgsfield suite — auth via `higgsfield auth login`, not an env var |
 | `MODAL_LTX2_ENDPOINT_URL` | ltx_video_modal | Self-hosted LTX-2 |
 | `VIDEO_GEN_LOCAL_ENABLED` | local video tools | Enable local GPU generation |
 | `VIDEO_GEN_LOCAL_MODEL` | wan, hunyuan, ltx, cogvideo | Select local model |

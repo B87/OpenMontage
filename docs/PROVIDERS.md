@@ -345,24 +345,42 @@ Google TTS offers 700+ voices across 50+ languages. Voice names follow the patte
 
 ---
 
-### Higgsfield — Multi-Model Video Orchestrator
+### Higgsfield — Multi-Model Generation Suite (CLI-backed)
 
-> **Multi-model video platform.** Routes to Kling 3.0, Veo 3.1, Sora 2, WAN 2.5, and proprietary Soul Cinema through a single API. Includes Soul ID for character consistency across clips.
+> **Whole-product Higgsfield surface, driven through the official `higgsfield` CLI** (not a raw HTTP API). One auth/session covers image, video, 3D, audio, branded ads, and video-virality analysis. Routes to Seedance 2.0, Kling, Veo, Wan, GPT Image 2, Nano Banana, Soul models, Recraft, Sonilo/Mirelo audio, and Marketing Studio. Chains with Soul ID for character consistency.
 
-**Tools unlocked:** `higgsfield_video`
-**Env vars:** `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` (or combined `HIGGSFIELD_KEY=key:secret`)
+**Tools unlocked:**
+
+| Tool | Capability | What it does |
+|------|-----------|--------------|
+| `higgsfield_video` | `video_generation` | Seedance 2.0 (default), Kling, Veo, Wan, Grok, Minimax, Cinema Studio — text/image-to-video |
+| `higgsfield_image` | `image_generation` | GPT Image 2 (default), Nano Banana, Soul (`--soul-id`), Recraft, Flux, Seedream, Z Image |
+| `higgsfield_music` | `music_generation` | Sonilo — text-to-music beds and jingles |
+| `higgsfield_sfx` | `sound_effects` | Mirelo — text-to-audio sound effects, foley, ambience |
+| `higgsfield_3d` | `model_3d` | Multi-Image to 3D — 1-4 reference images → GLB mesh |
+| `higgsfield_marketing` | `marketing_ad` | Marketing Studio — branded UGC/ad video & image with product/avatar context |
+| `higgsfield_virality` | `analysis` | Virality Predictor (`brain_activity`) — video-in/text-out hook & attention scoring |
+
+**Dependency:** the `higgsfield` CLI on `PATH` (no env vars — auth is a CLI session).
+
+`higgsfield_video`, `higgsfield_image`, and `higgsfield_music` auto-route through `video_selector` / `image_selector` / the music capability. The other three expose new capability families (`sound_effects`, `model_3d`, `marketing_ad`) the agent calls directly via the registry.
 
 #### Setup
 
-1. Go to [cloud.higgsfield.ai](https://cloud.higgsfield.ai/) and create an account
-2. Subscribe to a plan (Starter or above for API access)
-3. Navigate to API Keys section at [cloud.higgsfield.ai/api-keys](https://cloud.higgsfield.ai/api-keys)
-4. Generate an API key and secret
-5. Add to `.env`:
+1. Install the CLI:
    ```
-   HIGGSFIELD_API_KEY=your-api-key
-   HIGGSFIELD_API_SECRET=your-api-secret
+   curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh
    ```
+2. Authenticate (interactive, opens a browser):
+   ```
+   higgsfield auth login
+   ```
+3. Verify:
+   ```
+   higgsfield account status
+   ```
+
+No `.env` keys are required — the CLI stores the session. A paid plan is still needed for credits (see pricing below).
 
 #### Pricing
 
@@ -728,7 +746,7 @@ These tools require only FFmpeg or Python packages — no GPU, no API key.
 | **OpenAI** | `OPENAI_API_KEY` | `openai_tts`, `openai_image` | Paid only |
 | **xAI** | `XAI_API_KEY` | `grok_image`, `grok_video` | Paid only |
 | **Runway** | `RUNWAY_API_KEY` | `runway_video` | Free trial + paid |
-| **Higgsfield** | `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` | `higgsfield_video` | Subscription ($15-84/mo) |
+| **Higgsfield** | `higgsfield` CLI (`higgsfield auth login`) | `higgsfield_video`, `higgsfield_image`, `higgsfield_music`, `higgsfield_sfx`, `higgsfield_3d`, `higgsfield_marketing`, `higgsfield_virality` | Subscription ($15-84/mo) |
 | **HeyGen** | `HEYGEN_API_KEY` | `heygen_video` | Pay-as-you-go |
 | **Suno** | `SUNO_API_KEY` | `suno_music` | Pay-as-you-go |
 | **Local GPU** | `VIDEO_GEN_LOCAL_ENABLED` | `wan_video`, `hunyuan_video`, `cogvideo_video`, `ltx_video_local` | Free (GPU required) |

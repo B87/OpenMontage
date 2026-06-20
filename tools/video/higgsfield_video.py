@@ -1,16 +1,21 @@
-"""Higgsfield video generation via Higgsfield Cloud API.
+"""Higgsfield video generation via the official `higgsfield` CLI.
 
-Multi-model orchestrator with proprietary Soul model for character-consistent,
-photorealistic video generation. Routes to Kling, Veo, Sora, and WAN under the hood.
+Routes to Higgsfield's video lineup (Seedance 2.0 default, plus Kling, Veo, Wan,
+Grok, Minimax, and Cinema Studio) through one wrapper. The CLI handles auth,
+auto-uploads local reference images/audio, polls to completion, and returns the
+result URL, which we download to the project's asset path.
+
+Layer 3 knowledge: `.agents/skills/higgsfield-generate/` (model catalog, media
+inputs) and `.agents/skills/seedance-2-0/` (Seedance prompt craft).
 """
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from tools._higgsfield_cli import INSTALL_INSTRUCTIONS, is_installed, run_generate
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -25,46 +30,56 @@ from tools.base_tool import (
 )
 
 
+# Display model -> CLI job_set_type. Defaults favor Seedance 2.0 per the skill.
+MODELS = {
+    "seedance_2_0": {"name": "Seedance 2.0", "i2v": True, "audio_ref": True, "cost5": 0.80},
+    "kling3_0": {"name": "Kling 3.0", "i2v": True, "audio_ref": False, "cost5": 0.20},
+    "kling3_0_turbo": {"name": "Kling 3.0 Turbo", "i2v": True, "audio_ref": False, "cost5": 0.12},
+    "seedance_1_5_pro": {"name": "Seedance 1.5 Pro", "i2v": True, "audio_ref": False, "cost5": 0.30},
+    "veo3_1": {"name": "Google Veo 3.1", "i2v": True, "audio_ref": False, "cost5": 0.50},
+    "minimax_hailuo": {"name": "Minimax Hailuo", "i2v": True, "audio_ref": False, "cost5": 0.10},
+    "wan2_7": {"name": "Wan 2.7", "i2v": True, "audio_ref": False, "cost5": 0.12},
+    "grok_video_v15": {"name": "Grok Video 1.5", "i2v": True, "audio_ref": False, "cost5": 0.20},
+    "cinema_studio_video_3_0": {"name": "Cinema Studio Video 3.0", "i2v": True, "audio_ref": False, "cost5": 0.60},
+}
+
+
 class HiggsFieldVideo(BaseTool):
     name = "higgsfield_video"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.GENERATE
     capability = "video_generation"
     provider = "higgsfield"
-    stability = ToolStability.EXPERIMENTAL
+    stability = ToolStability.BETA
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.STOCHASTIC
     runtime = ToolRuntime.API
 
-    dependencies = []
-    install_instructions = (
-        "Set HIGGSFIELD_API_KEY and HIGGSFIELD_API_SECRET for your Higgsfield Cloud credentials.\n"
-        "  Get them at https://cloud.higgsfield.ai/api-keys\n"
-        "  Alternatively, set HIGGSFIELD_KEY as a combined key:secret value."
-    )
-    agent_skills = ["seedance-2-0", "ai-video-gen"]
+    dependencies = ["cmd:higgsfield"]
+    install_instructions = INSTALL_INSTRUCTIONS
+    agent_skills = ["higgsfield-generate", "seedance-2-0", "ai-video-gen"]
 
     capabilities = ["text_to_video", "image_to_video"]
     supports = {
         "text_to_video": True,
         "image_to_video": True,
+        "start_frame": True,
+        "end_frame": True,
+        "audio_reference": True,
         "character_consistency": True,
-        "multi_model_routing": True,
         "native_audio": True,
         "cinematic_quality": True,
         "camera_direction": True,
-        "lip_sync": True,
         "multi_shot": True,
     }
     best_for = [
-        "preferred premium video gen on Higgsfield (Seedance 2.0 is the default model)",
+        "premium video gen on Higgsfield (Seedance 2.0 default — SOTA multi-shot motion)",
         "cinematic trailers, teasers, and high-fidelity clips with native synchronized audio",
-        "character-consistent video generation (Soul ID + Seedance 2.0 identity consistency)",
-        "director-level camera control and multi-shot editing in a single generation",
-        "lip-sync from quoted dialogue in prompts",
-        "multi-model access through a single API (Seedance 2.0, Kling, Veo, Sora, WAN)",
+        "character-consistent video (Soul ID + Seedance 2.0 identity consistency)",
+        "image-to-video with start/end frame control",
+        "single-API access to Seedance, Kling, Veo, Wan, Grok, Minimax, Cinema Studio",
     ]
-    not_good_for = ["offline generation", "fine-grained model control", "budget projects without subscription"]
+    not_good_for = ["offline generation", "branded ads (use higgsfield_marketing)", "budget projects without a subscription"]
     fallback_tools = ["seedance_video", "seedance_replicate", "kling_video", "veo_video", "minimax_video"]
     quality_score = 0.9
 
@@ -80,30 +95,25 @@ class HiggsFieldVideo(BaseTool):
             },
             "model": {
                 "type": "string",
-                "enum": [
-                    "seedance_2.0",
-                    "seedance_2.0_fast",
-                    "kling_3.0",
-                    "veo_3.1",
-                    "sora_2",
-                    "wan_2.5",
-                    "soul_cinema",
-                ],
-                "default": "seedance_2.0",
-                "description": "Underlying model. Defaults to Seedance 2.0 (preferred premium) — see .agents/skills/seedance-2-0/",
+                "enum": list(MODELS.keys()),
+                "default": "seedance_2_0",
+                "description": "CLI job_set_type. Defaults to Seedance 2.0 (preferred premium).",
             },
             "duration": {
-                "type": "string",
-                "enum": ["5", "10", "15"],
-                "default": "5",
-                "description": "Duration in seconds (availability varies by model)",
+                "type": "integer",
+                "default": 5,
+                "description": "Seconds. Seedance 2.0 accepts 4-15; ranges vary by model.",
             },
             "aspect_ratio": {
                 "type": "string",
-                "enum": ["16:9", "9:16", "1:1", "21:9"],
+                "enum": ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
                 "default": "16:9",
             },
-            "image_url": {"type": "string", "description": "Reference image URL for image_to_video"},
+            "resolution": {"type": "string", "description": "e.g. 480p/720p/1080p (model-specific)."},
+            "start_image": {"type": "string", "description": "Local path or UUID — first frame for image-to-video."},
+            "end_image": {"type": "string", "description": "Local path or UUID — last frame for transitions."},
+            "image": {"type": "string", "description": "Local path or UUID — generic reference image."},
+            "audio": {"type": "string", "description": "Local path or UUID — reference audio (Seedance 2.0 lipsync/soundtrack)."},
             "output_path": {"type": "string"},
         },
     }
@@ -112,148 +122,93 @@ class HiggsFieldVideo(BaseTool):
         cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
     )
     retry_policy = RetryPolicy(max_retries=2, retryable_errors=["rate_limit", "timeout"])
-    idempotency_key_fields = ["prompt", "model", "operation", "duration"]
-    side_effects = ["writes video file to output_path", "calls Higgsfield Cloud API"]
+    idempotency_key_fields = ["prompt", "model", "operation", "duration", "aspect_ratio"]
+    side_effects = ["writes video file to output_path", "calls the Higgsfield CLI"]
     user_visible_verification = ["Watch generated clip for motion coherence and visual quality"]
 
-    def _get_credentials(self) -> tuple[str, str] | None:
-        """Return (api_key, api_secret) or None if not configured."""
-        combined = os.environ.get("HIGGSFIELD_KEY")
-        if combined and ":" in combined:
-            key, secret = combined.split(":", 1)
-            return key, secret
-        key = os.environ.get("HIGGSFIELD_API_KEY")
-        secret = os.environ.get("HIGGSFIELD_API_SECRET")
-        if key and secret:
-            return key, secret
-        return None
-
     def get_status(self) -> ToolStatus:
-        if self._get_credentials():
-            return ToolStatus.AVAILABLE
-        return ToolStatus.UNAVAILABLE
+        return ToolStatus.AVAILABLE if is_installed() else ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        model = inputs.get("model", "seedance_2.0")
-        duration = int(inputs.get("duration", "5"))
-        # Approximate per-clip costs based on Higgsfield credit pricing.
-        # Seedance 2.0 on Higgsfield runs ~50-80 credits per 5s clip ≈ $0.50-$1.20.
-        base_costs = {
-            "seedance_2.0": 0.80,
-            "seedance_2.0_fast": 0.50,
-            "kling_3.0": 0.10,
-            "wan_2.5": 0.10,
-            "veo_3.1": 0.50,
-            "sora_2": 0.50,
-            "soul_cinema": 0.15,
-        }
-        base = base_costs.get(model, 0.15)
-        return base * (duration / 5)
+        model = inputs.get("model", "seedance_2_0")
+        duration = int(inputs.get("duration", 5) or 5)
+        base = MODELS.get(model, {}).get("cost5", 0.20)
+        return round(base * (duration / 5), 2)
 
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
-        model = inputs.get("model", "seedance_2.0")
-        if model in ("veo_3.1", "sora_2", "seedance_2.0"):
-            return 120.0
-        if model == "seedance_2.0_fast":
-            return 60.0
-        return 60.0
+        return 120.0
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
-        creds = self._get_credentials()
-        if not creds:
+        if not is_installed():
+            return ToolResult(success=False, error="Higgsfield CLI not found. " + INSTALL_INSTRUCTIONS)
+
+        model = inputs.get("model", "seedance_2_0")
+        operation = inputs.get("operation", "text_to_video")
+
+        # Media flags. For image-to-video prefer start_image; fall back to generic image.
+        media: list[tuple[str, str]] = []
+        if inputs.get("start_image"):
+            media.append(("--start-image", inputs["start_image"]))
+        elif operation == "image_to_video" and inputs.get("image"):
+            media.append(("--start-image", inputs["image"]))
+        elif inputs.get("image"):
+            media.append(("--image", inputs["image"]))
+        if inputs.get("end_image"):
+            media.append(("--end-image", inputs["end_image"]))
+        if inputs.get("audio") and MODELS.get(model, {}).get("audio_ref"):
+            media.append(("--audio", inputs["audio"]))
+
+        if operation == "image_to_video" and not media:
             return ToolResult(
                 success=False,
-                error="Higgsfield credentials not set. " + self.install_instructions,
+                error="image_to_video requires a start_image (or image) reference.",
             )
 
-        import requests
-
-        api_key, api_secret = creds
-        start = time.time()
-        operation = inputs.get("operation", "text_to_video")
-        model = inputs.get("model", "kling_3.0")
-
-        payload: dict[str, Any] = {
-            "prompt": inputs["prompt"],
-            "model": model,
-            "task": operation.replace("_", "-"),
-        }
+        params: dict[str, Any] = {}
         if inputs.get("duration"):
-            payload["duration"] = int(inputs["duration"])
+            params["duration"] = int(inputs["duration"])
         if inputs.get("aspect_ratio"):
-            payload["aspect_ratio"] = inputs["aspect_ratio"]
-        if operation == "image_to_video" and inputs.get("image_url"):
-            payload["image_url"] = inputs["image_url"]
+            params["aspect_ratio"] = inputs["aspect_ratio"]
+        if inputs.get("resolution"):
+            params["resolution"] = inputs["resolution"]
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "X-API-Secret": api_secret,
-            "Content-Type": "application/json",
-        }
+        output_path = inputs.get("output_path", "higgsfield_video.mp4")
+        start = time.time()
+        result = run_generate(
+            model,
+            prompt=inputs["prompt"],
+            media=media or None,
+            params=params,
+            output_path=output_path,
+            output_ext=".mp4",
+            wait_timeout="30m",
+        )
 
-        try:
-            # Submit generation request
-            submit_resp = requests.post(
-                "https://platform.higgsfield.ai/v1/generations",
-                headers=headers,
-                json=payload,
-                timeout=30,
-            )
-            submit_resp.raise_for_status()
-            gen_data = submit_resp.json()
-            generation_id = gen_data["id"]
-            status_url = gen_data.get("status_url", f"https://platform.higgsfield.ai/v1/generations/{generation_id}")
-
-            # Poll for completion
-            video_url = None
-            for _ in range(72):  # max ~6 minutes
-                time.sleep(5)
-                poll_resp = requests.get(status_url, headers=headers, timeout=15)
-                poll_resp.raise_for_status()
-                poll_data = poll_resp.json()
-                status = poll_data.get("status", "Unknown")
-
-                if status in ("Completed", "COMPLETED"):
-                    video_url = poll_data.get("output_url") or poll_data.get("url")
-                    break
-                if status in ("Failed", "FAILED", "NSFW", "Cancelled", "CANCELLED"):
-                    return ToolResult(
-                        success=False,
-                        error=f"Higgsfield generation {status}: {poll_data.get('error', 'unknown')}",
-                    )
-
-            if not video_url:
-                return ToolResult(success=False, error="Higgsfield generation timed out.")
-
-            # Download video
-            video_response = requests.get(video_url, timeout=120)
-            video_response.raise_for_status()
-
-            output_path = Path(inputs.get("output_path", "higgsfield_output.mp4"))
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(video_response.content)
-
-        except Exception as e:
-            return ToolResult(success=False, error=f"Higgsfield video generation failed: {e}")
+        if not result.success:
+            return ToolResult(success=False, error=result.error)
 
         from tools.video._shared import probe_output
 
-        probed = probe_output(output_path)
+        out = Path(result.output_path or output_path)
+        probed = probe_output(out) if out.exists() else {}
         return ToolResult(
             success=True,
             data={
                 "provider": "higgsfield",
-                "model": model,
+                "model": result.model or model,
                 "prompt": inputs["prompt"],
                 "operation": operation,
                 "aspect_ratio": inputs.get("aspect_ratio", "16:9"),
-                "output": str(output_path),
-                "output_path": str(output_path),
+                "job_id": result.job_id,
+                "result_url": result.result_url,
+                "adjustments": result.adjustments,
+                "output": str(out),
+                "output_path": str(out),
                 "format": "mp4",
                 **probed,
             },
-            artifacts=[str(output_path)],
+            artifacts=[str(out)],
             cost_usd=self.estimate_cost(inputs),
             duration_seconds=round(time.time() - start, 2),
-            model=model,
+            model=result.model or model,
         )
