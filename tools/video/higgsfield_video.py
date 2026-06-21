@@ -31,8 +31,10 @@ from tools.base_tool import (
 
 
 # Display model -> CLI job_set_type. Defaults favor Seedance 2.0 per the skill.
+# On Higgsfield, Seedance 2.0 "fast" is --mode fast on seedance_2_0 (not a separate JST).
 MODELS = {
-    "seedance_2_0": {"name": "Seedance 2.0", "i2v": True, "audio_ref": True, "cost5": 0.80},
+    "seedance_2_0": {"name": "Seedance 2.0", "jst": "seedance_2_0", "i2v": True, "audio_ref": True, "cost5": 0.80, "supports_mode": True},
+    "seedance_2_0_fast": {"name": "Seedance 2.0 Fast", "jst": "seedance_2_0", "i2v": True, "audio_ref": True, "cost5": 0.50, "supports_mode": True, "default_mode": "fast"},
     "kling3_0": {"name": "Kling 3.0", "i2v": True, "audio_ref": False, "cost5": 0.20},
     "kling3_0_turbo": {"name": "Kling 3.0 Turbo", "i2v": True, "audio_ref": False, "cost5": 0.12},
     "seedance_1_5_pro": {"name": "Seedance 1.5 Pro", "i2v": True, "audio_ref": False, "cost5": 0.30},
@@ -110,6 +112,11 @@ class HiggsFieldVideo(BaseTool):
                 "default": "16:9",
             },
             "resolution": {"type": "string", "description": "e.g. 480p/720p/1080p (model-specific)."},
+            "mode": {
+                "type": "string",
+                "enum": ["std", "fast"],
+                "description": "Seedance 2.0 only: std (default) or fast (cheaper iteration).",
+            },
             "start_image": {"type": "string", "description": "Local path or UUID — first frame for image-to-video."},
             "end_image": {"type": "string", "description": "Local path or UUID — last frame for transitions."},
             "image": {"type": "string", "description": "Local path or UUID — generic reference image."},
@@ -144,6 +151,8 @@ class HiggsFieldVideo(BaseTool):
 
         model = inputs.get("model", "seedance_2_0")
         operation = inputs.get("operation", "text_to_video")
+        model_meta = MODELS.get(model, {})
+        jst = model_meta.get("jst", model)
 
         # Media flags. For image-to-video prefer start_image; fall back to generic image.
         media: list[tuple[str, str]] = []
@@ -155,7 +164,7 @@ class HiggsFieldVideo(BaseTool):
             media.append(("--image", inputs["image"]))
         if inputs.get("end_image"):
             media.append(("--end-image", inputs["end_image"]))
-        if inputs.get("audio") and MODELS.get(model, {}).get("audio_ref"):
+        if inputs.get("audio") and model_meta.get("audio_ref"):
             media.append(("--audio", inputs["audio"]))
 
         if operation == "image_to_video" and not media:
@@ -171,11 +180,15 @@ class HiggsFieldVideo(BaseTool):
             params["aspect_ratio"] = inputs["aspect_ratio"]
         if inputs.get("resolution"):
             params["resolution"] = inputs["resolution"]
+        if model_meta.get("supports_mode"):
+            params["mode"] = inputs.get("mode") or model_meta.get("default_mode", "std")
+            # Seedance clips for compose are muted; skip native audio generation.
+            params["generate_audio"] = False
 
         output_path = inputs.get("output_path", "higgsfield_video.mp4")
         start = time.time()
         result = run_generate(
-            model,
+            jst,
             prompt=inputs["prompt"],
             media=media or None,
             params=params,
