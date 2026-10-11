@@ -26,7 +26,9 @@ Write `channels/<channel>/briefs/<slug>.md` containing:
 - the angle: what makes this different from existing videos on the topic. Search YouTube and
   the web, and list 3–5 competing videos with their public view counts
 - must-cover points and what to leave out
-- success metrics for this piece, based on the channel's own numbers
+- success metrics for this piece, based on the channel's own numbers (or competitor baselines while the channel has no data)
+- which existing library assets could be reused (`asset_library` search), and which new
+  evergreen assets this piece should create for future episodes
 
 ### 2. `package`: before upload
 Read the final script and the thumbnail candidates. Write the title, the description (hook lines,

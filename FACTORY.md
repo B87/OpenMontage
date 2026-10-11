@@ -28,7 +28,9 @@ channels/                     # PRIVATE repo, gitignored by the fork
       voice/VOICE.md          # pinned narrator voice + pronunciation rules
       logo/  fonts/  references/
     series/                   # one file per season: episode plan, shared elements, shorts plan
+    PRODUCTION.md             # autonomy level, pre-approved budget/tools, house decisions
     briefs/                   # showrunner episode briefs
+    library/                  # reusable approved assets: index.jsonl (committed) + media/ (not committed)
     analytics/                # showrunner performance pulls (JSON) and reviews (MD)
     platforms/                # one rules file per platform the channel publishes to
     content-log.md            # everything produced/published, newest first
@@ -44,7 +46,7 @@ After cloning the channels repo on a new machine, run `scripts/factory_link_play
 1. **Identify the channel.** If the user didn't name one, ask. List
    `channels/` (ignore `_template`) to show the options.
 2. **Read the channel context before Rule Zero's pipeline selection:**
-   `channels/<channel>/CHANNEL.md`, `brand/BRAND.md`, `brand/voice/VOICE.md`,
+   `channels/<channel>/CHANNEL.md`, `PRODUCTION.md`, `brand/BRAND.md`, `brand/voice/VOICE.md`,
    the `platforms/<platform>.md` file for every target platform, and the
    `series/` file the video belongs to (ask if unclear). Their constraints feed
    the brief, the proposal and the scene plan. A series episode must honour the
@@ -77,34 +79,95 @@ so every approval goes through the main session.
 
 | Role | Agent | Owns |
 |---|---|---|
-| Editor / Producer | main session | pipeline execution, approvals with the user, spending, rendering, delivery |
+| Editor / Producer | main session | pipeline execution, spending, rendering, delivery, the library |
 | Art Director | `art-director` | visual style, technique, composition, thumbnails |
 | Fact-checker | `fact-checker` | technical accuracy of every claim |
 | Showrunner | `showrunner` | topics, seasons, packaging, analytics, growth |
 
-**Flow for one episode**
+**Flow for one episode** (👤 = user approval under the default `reviewed` autonomy)
 
-1. `showrunner` (mode `brief`) → `channels/<ch>/briefs/<slug>.md` → **user approves**.
-2. Editor runs research → script.
-3. `fact-checker` reviews the research brief + script → editor applies fixes → **user approves script**.
-4. Editor makes the scene plan + first 3 images → `art-director` (`scene_plan`, `first_images`) → **user approves**.
-5. Editor generates the remaining assets, edits, composes the render and the thumbnail candidates.
-6. `art-director` (`final_render`, `thumbnail`) and `showrunner` (mode `package`) → **user approves** → user uploads.
-7. 7 and 28 days after publishing: `showrunner` (mode `review`) → analytics + lessons → feeds the next brief.
+1. `showrunner` (mode `brief`) → `channels/<ch>/briefs/<slug>.md` → 👤 **brief**.
+2. Research → script → `fact-checker` → apply fixes. Script gate: approved by the fact-checker.
+3. Scene plan + **library search** for every scene (see "Asset library") → first 3 new images →
+   `art-director` (`scene_plan`, `first_images`). Scene-plan gate: approved by the art director.
+4. Remaining assets → filmstrip → `art-director`. Assets gate: approved by the art director.
+5. Edit → compose → thumbnail candidates.
+6. In parallel: `art-director` (`final_render`, `thumbnail`) and `showrunner` (mode `package`) → 👤 **final package**.
+7. After approval: **ingest approved assets into the library**, deliver, log, commit in the channels repo.
+   The user uploads.
+8. 7 and 28 days after publishing: `showrunner` (mode `review`) → feeds the next brief.
 
 **Rules**
 - Hand-offs go through files, never chat memory: briefs, `projects/<id>/artifacts/`, and
   `projects/<id>/reviews/<role>-<checkpoint>-<n>.md`.
 - Reviewers return `VERDICT: approve | revise | reject` with concrete fixes. At most **2 revision
-  rounds** per checkpoint; after that, the editor brings the disagreement to the user.
-- Run independent reviews in parallel (e.g. step 6).
+  rounds** per checkpoint; after that, escalate to the user.
+- Run independent reviews in parallel.
 - Roles stay in their lane: reviewers write review files only, and the showrunner writes only inside `channels/<ch>/`.
 
-**YouTube analytics setup** (once per machine and channel): follow the steps in
-`python -m tools.analysis.youtube_analytics --help` / `tools/analysis/youtube_analytics.py`
-(Google Cloud OAuth client → `~/.config/openmontage/youtube/client_secret.json`), then
-`python -m tools.analysis.youtube_analytics auth --channel <channel>`. Tokens live outside
-both repos.
+## Autonomy: decide, log, continue
+
+Each channel's `PRODUCTION.md` sets an autonomy level, a pre-approved budget, pre-approved paid
+tools, and **house decisions** (runtime, composition mode, music source, image and video providers…).
+
+| Level | The user approves | Everything else |
+|---|---|---|
+| `supervised` | every pipeline gate (plain OpenMontage behaviour) | — |
+| `reviewed` (recommended) | the brief and the final package | gates approved by the reviewer subagents |
+| `autonomous` | the final package only | the showrunner also picks the topic from the season plan |
+
+**How it works with OpenMontage's gates.** Gated stages still need a checkpoint with
+`human_approved=True`, which is only legitimate under a recorded pre-authorization. At project
+init, when the level is not `supervised`, write one `decision_log` entry with
+`category: "approval_policy"` that cites the channel's `PRODUCTION.md` level and the user's
+request. Then, for each gate:
+- run the gate's reviewer: proposal → `showrunner` + budget check; research and script →
+  `fact-checker`; scene_plan and assets → `art-director`; edit and compose → `art-director`
+  (`final_render`); publish → **always the user**.
+- on `approve`, write the checkpoint `completed` with `human_approved=True`, and record in it
+  that approval came from the pre-authorization plus the review file path.
+- on `revise`, apply the fixes and re-review (at most 2 rounds), then escalate.
+
+**Decide, don't ask.** Never ask the user about anything a house decision covers. For anything
+uncovered, choose the option you would have marked "(Recommended)", log it in `decision_log`
+with the reasoning, and keep going. List these decisions in the final summary so the user can
+promote good ones to house decisions.
+
+**Escalate (stop and ask) only when:**
+- projected spend would exceed the piece budget, or a single action exceeds the per-action cap;
+- a paid tool is not on the pre-approved list (e.g. Higgsfield);
+- a reviewer still says `revise`/`reject` after 2 rounds;
+- the fact-checker leaves a `wrong`/`unverifiable` claim the script can't drop or reword around;
+- something would change the brand, playbook, voice or `PRODUCTION.md`;
+- the action is outward-facing (uploading, publishing, posting) or deletes library assets.
+
+Budget mechanics: at init, call `approve_tool` on the cost tracker for each pre-approved paid
+tool. Treat `ApprovalRequiredError` for actions within the channel's per-action cap as
+pre-approved (log it). Anything above the cap is an escalation.
+
+## Asset library: generate once, reuse forever
+
+Each channel keeps a library of **approved** generated media in `channels/<ch>/library/`,
+managed by the `asset_library` tool: `index.jsonl` with descriptions, tags, subjects and full
+provenance, plus `media/<type>/`. The media is gitignored in the channels repo (back it up
+separately); the index is committed.
+
+- **Library-first.** At the scene-plan stage, `search` the library for every scene's needs
+  (subjects + description + aspect ratio) before planning any generation. View the top
+  candidates. Reuse an asset if it fits, with `use` into `projects/<id>/assets/...`
+  (this records the reuse). The art director checks fit at `first_images`. Generate only what
+  the library can't cover, and write the reuses and their savings into the cost estimate.
+- **Design for reuse.** Prefer generating evergreen pieces: clean machine cutaways, process
+  diagrams without episode-specific labels, textures and backgrounds, recurring cards (season
+  opener, end card), music beds and SFX. Make them at full quality with neutral framing.
+- **Ingest after final approval.** Run `ingest_manifest` on the project with a viewed,
+  specific `descriptions` map. Describe what is shown (subject, view, state, composition and
+  empty space), not what it was used for. Add `subjects` and tags (season, process, view type).
+  Also ingest reusable renders (opener, end card, Machine Anatomy layout) with `ingest`.
+  Narration is skipped by default because it is script-specific.
+- **Keep it clean.** When the brand changes, mark affected assets `deprecated` (`update`)
+  instead of deleting them. Never delete library assets without asking the user.
+- The showrunner can report savings with `stats` (cost avoided by reuse).
 
 ## Provider preference (credits are limited)
 

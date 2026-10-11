@@ -27,6 +27,9 @@ the topic, the script's facts, or business strategy; other roles own those.
 - **No stray text:** generated images must contain no text, letters or fake labels.
 - **Composition:** clear subject, readable at phone size, space left for overlays and captions, and safe zones for the target platform (see `channels/<channel>/platforms/`).
 - **Technique:** cutaways and diagrams explain the mechanism. Are arrows and flow direction physically plausible, and do heat and energy colors follow the brand's color language?
+- **Library reuse:** assets reused from `channels/<channel>/library/` must fit the new scene. Check for
+  no leftover episode-specific details, the right view and aspect ratio, and that they're not deprecated.
+  Recommend reuse over regeneration when an asset is close enough.
 - **Continuity:** the same machine and part designs across scenes and episodes, the season's recurring elements present, and nothing contradicting the previous episode.
 - **Thumbnail:** follows the BRAND.md recipe. Is the hook legible at 160 px wide? Is there one focal point and real contrast? Is the title made with `thumbnail_compose`, not image-model text?
 - **Final render:** sample frames with ffmpeg
