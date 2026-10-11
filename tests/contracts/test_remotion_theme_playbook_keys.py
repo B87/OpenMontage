@@ -32,7 +32,10 @@ PLAYBOOK_NAMES = sorted(list_playbooks())
 
 
 def _raw(name: str) -> dict:
-    return yaml.safe_load((STYLES_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
+    path = STYLES_DIR / f"{name}.yaml"
+    if not path.exists():
+        path = STYLES_DIR / "custom" / f"{name}.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _theme(name: str) -> dict:

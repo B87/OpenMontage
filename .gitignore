@@ -104,3 +104,8 @@ venv/
 
 # Local Wan / diffusers GPU environment
 .venv-wan/
+
+# Content factory: channel content is private and lives in its own repo
+# inside channels/ (see FACTORY.md). Never commit it to this public fork.
+channels/
+styles/custom/
