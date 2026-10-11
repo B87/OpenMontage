@@ -6,6 +6,7 @@ interface for discovery, execution, cost estimation, and health reporting.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import inspect
 import json
@@ -13,6 +14,7 @@ import os
 import platform
 import subprocess
 import shutil
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -30,6 +32,8 @@ def _load_dotenv() -> None:
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if not env_path.is_file():
         return
+    import re
+
     with open(env_path, encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
@@ -37,13 +41,19 @@ def _load_dotenv() -> None:
                 continue
             key, _, value = line.partition("=")
             key = key.strip()
-            value = value.strip().strip("'\"")
-            # Strip inline comments: VAR=value  # comment
-            # But only if the # is preceded by whitespace (avoid stripping from values like colors)
-            if "  #" in value:
-                value = value[:value.index("  #")].rstrip()
-            elif "\t#" in value:
-                value = value[:value.index("\t#")].rstrip()
+            value = value.strip()
+            # Quoted value: take the content inside the quotes verbatim.
+            if value[:1] in ("'", '"'):
+                quote = value[0]
+                end = value.find(quote, 1)
+                value = value[1:end] if end != -1 else value[1:]
+            else:
+                # Strip an inline comment ('#' at line start or after
+                # whitespace) so "VAR=   # note" yields "" not "# note".
+                match = re.search(r"(^|\s)#", value)
+                if match:
+                    value = value[: match.start()]
+                value = value.strip()
             if key and key not in os.environ:
                 os.environ[key] = value
 
@@ -75,10 +85,11 @@ class ToolStatus(str, Enum):
 
 class ToolRuntime(str, Enum):
     """Where and how a tool executes."""
-    LOCAL = "local"            # Runs entirely on-device, free, no network
-    LOCAL_GPU = "local_gpu"    # Runs on-device but needs GPU (VRAM)
-    API = "api"                # Calls an external API, requires API key, costs money
-    HYBRID = "hybrid"          # Can run locally OR via API (e.g., image_selector)
+
+    LOCAL = "local"  # Runs entirely on-device, free, no network
+    LOCAL_GPU = "local_gpu"  # Runs on-device but needs GPU (VRAM)
+    API = "api"  # Calls an external API, requires API key, costs money
+    HYBRID = "hybrid"  # Can run locally OR via API (e.g., image_selector)
 
 
 class ExecutionMode(str, Enum):
@@ -101,6 +112,7 @@ class ResumeSupport(str, Enum):
 @dataclass
 class ResourceProfile:
     """Hardware resource envelope for a tool."""
+
     cpu_cores: int = 1
     ram_mb: int = 512
     vram_mb: int = 0
@@ -111,6 +123,7 @@ class ResourceProfile:
 @dataclass
 class RetryPolicy:
     """Safe retry behavior for a tool."""
+
     max_retries: int = 0
     backoff_seconds: float = 1.0
     retryable_errors: list[str] = field(default_factory=list)
@@ -119,18 +132,124 @@ class RetryPolicy:
 @dataclass
 class ToolResult:
     """Standard result returned by tool execution."""
+
     success: bool
     data: dict[str, Any] = field(default_factory=dict)
     artifacts: list[str] = field(default_factory=list)
     error: Optional[str] = None
-    cost_usd: float = 0.0
+    cost_usd: Optional[float] = 0.0
     duration_seconds: float = 0.0
     seed: Optional[int] = None
     model: Optional[str] = None
 
 
+import threading as _threading
+
+# Shared nesting counter for instrumented execute() calls (thread-local so
+# parallel tool threads don't see each other's depth).
+_EXECUTE_DEPTH = _threading.local()
+
+
+def _instrument_execute(fn: Callable) -> Callable:
+    """Wrap a tool's execute() with Backlot event emission.
+
+    Appends start/finish/error entries to the owning project's events.jsonl
+    when the call can be attributed to a project (explicit project_dir input
+    or any path input under projects/). Powers the board's live activity
+    ticker and per-scene generating states with zero agent involvement.
+
+    Instrumentation is strictly non-fatal: any failure inside the event layer
+    is swallowed and the tool call proceeds untouched.
+    """
+    if getattr(fn, "_backlot_instrumented", False):
+        return fn
+
+    depth_state = _EXECUTE_DEPTH  # shared across all tools (selector → provider)
+
+    @functools.wraps(fn)
+    def wrapper(self, inputs: Any, *args: Any, **kwargs: Any):
+        # Event layer is fully optional: if it can't import, run untouched.
+        try:
+            from lib.events import emit_event, infer_project_dir
+        except Exception:
+            return fn(self, inputs, *args, **kwargs)
+
+        tool_name = getattr(self, "name", "") or self.__class__.__name__
+        scene_id = inputs.get("scene_id") if isinstance(inputs, dict) else None
+        output_path = inputs.get("output_path") if isinstance(inputs, dict) else None
+        # Nesting depth: selector tools delegate to provider tools' execute().
+        # Both emit (the ticker wants the provider name too), but depth lets
+        # consumers dedupe — e.g. sum cost_usd only at depth 0.
+        depth = getattr(depth_state, "value", 0)
+        depth_state.value = depth + 1
+        project_dir = infer_project_dir(inputs)
+
+        base = {
+            "tool": tool_name,
+            "scene_id": scene_id,
+            "depth": depth if depth else None,
+        }
+        if project_dir is not None:
+            emit_event(
+                project_dir,
+                {
+                    **base,
+                    "event": "start",
+                    "output_path": str(output_path) if output_path else None,
+                },
+            )
+
+        started = time.monotonic()
+        try:
+            result = fn(self, inputs, *args, **kwargs)
+        except Exception as exc:
+            if project_dir is not None:
+                emit_event(
+                    project_dir,
+                    {
+                        **base,
+                        "event": "error",
+                        "error": str(exc)[:300],
+                        "duration_s": round(time.monotonic() - started, 2),
+                    },
+                )
+            raise
+        finally:
+            depth_state.value = depth
+
+        if project_dir is None:
+            # The tool may have created its own project dir during execute
+            # (first call of a run) — attribute the finish if possible.
+            project_dir = infer_project_dir(inputs)
+        if project_dir is not None:
+            cost = getattr(result, "cost_usd", None)
+            emit_event(
+                project_dir,
+                {
+                    **base,
+                    "event": "finish",
+                    "output_path": str(output_path) if output_path else None,
+                    "success": getattr(result, "success", None),
+                    # NOTE: 0.0 is meaningful (ran for free) — only None is dropped.
+                    "cost_usd": cost if isinstance(cost, (int, float)) else None,
+                    "duration_s": round(time.monotonic() - started, 2),
+                },
+            )
+        return result
+
+    wrapper._backlot_instrumented = True  # type: ignore[attr-defined]
+    return wrapper
+
+
 class BaseTool(ABC):
     """Abstract base class for all OpenMontage tools."""
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Auto-instrument every concrete execute() with Backlot events."""
+        super().__init_subclass__(**kwargs)
+        impl = cls.__dict__.get("execute")
+        if impl is not None and not getattr(impl, "__isabstractmethod__", False):
+            cls.execute = _instrument_execute(impl)
 
     # --- Identity (override in subclasses) ---
     name: str = ""
@@ -202,8 +321,9 @@ class BaseTool(ABC):
     def check_dependencies(self) -> None:
         """Verify all dependencies are installed. Raises DependencyError if not."""
         for dep in self.dependencies:
-            if dep.startswith("cmd:"):
-                cmd_name = dep[4:]
+            if dep.startswith(("cmd:", "binary:")):
+                prefix = "cmd:" if dep.startswith("cmd:") else "binary:"
+                cmd_name = dep[len(prefix) :]
                 if shutil.which(cmd_name) is None:
                     raise DependencyError(
                         f"Command {cmd_name!r} not found. {self.install_instructions}"
@@ -259,7 +379,8 @@ class BaseTool(ABC):
             "resume_support": self.resume_support.value,
             "side_effects": self.side_effects,
             "fallback": self.fallback,
-            "fallback_tools": self.fallback_tools or ([self.fallback] if self.fallback else []),
+            "fallback_tools": self.fallback_tools
+            or ([self.fallback] if self.fallback else []),
             "agent_skills": self.agent_skills,
             "related_skills": self.agent_skills,
             "user_visible_verification": self.user_visible_verification,
@@ -295,9 +416,19 @@ class BaseTool(ABC):
 
     def dry_run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Preflight check without side effects. Override for paid/publishing tools."""
+        from tools.provider_pricing import PriceQuoteRequired
+
+        quote_error = None
+        try:
+            estimated_cost = self.estimate_cost(inputs)
+        except PriceQuoteRequired as exc:
+            estimated_cost = None
+            quote_error = str(exc)
         return {
             "tool": self.name,
-            "estimated_cost_usd": self.estimate_cost(inputs),
+            "estimated_cost_usd": estimated_cost,
+            "cost_status": "quote_required" if quote_error else "estimated",
+            "quote_reason": quote_error,
             "estimated_runtime_seconds": self.estimate_runtime(inputs),
             "status": self.get_status().value,
             "would_execute": True,
@@ -322,16 +453,57 @@ class BaseTool(ABC):
             exe = shutil.which(resolved_cmd[0])
             if exe:
                 resolved_cmd[0] = exe
-        return subprocess.run(
-            resolved_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-            check=True,
-        )
+        try:
+            return subprocess.run(
+                resolved_cmd,
+                capture_output=True,
+                text=True,
+                # Force UTF-8 decoding. The default uses the OS locale (cp1252 on
+                # Windows), which raises UnicodeDecodeError on a subprocess that
+                # emits Unicode/emoji (e.g. Remotion's progress output), killing the
+                # reader thread and potentially swallowing the real error text.
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                cwd=cwd,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            stdout = (exc.stdout or "").strip()
+            detail = stderr or stdout or str(exc)
+            raise ToolCommandError(
+                exc.returncode,
+                exc.cmd,
+                output=exc.output,
+                stderr=exc.stderr,
+                detail=detail,
+            ) from exc
+
+
+class ToolCommandError(subprocess.CalledProcessError):
+    """CalledProcessError with stderr/stdout surfaced in str(error)."""
+
+    def __init__(
+        self,
+        returncode: int,
+        cmd: list[str],
+        *,
+        output: Optional[str] = None,
+        stderr: Optional[str] = None,
+        detail: str = "",
+    ) -> None:
+        super().__init__(returncode, cmd, output=output, stderr=stderr)
+        self.detail = detail
+
+    def __str__(self) -> str:
+        base = super().__str__()
+        if self.detail:
+            return f"{base}\n{self.detail}"
+        return base
 
 
 class DependencyError(Exception):
     """Raised when a tool's dependency is not satisfied."""
+
     pass

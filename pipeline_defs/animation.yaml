@@ -2,7 +2,7 @@ name: animation
 version: "2.0"
 description: >
   Animation-first pipeline for motion graphics, diagram-led explainers, kinetic typography,
-  math visuals, and stylized illustrative sequences. Features a research-first pre-production
+  math visuals, explicit Three.js worlds, and stylized illustrative sequences. Features a research-first pre-production
   phase: the agent researches the topic and animation techniques, proposes concepts with
   animation mode selection and cost estimates, and gets explicit user approval before any
   assets are generated.
@@ -40,6 +40,7 @@ required_skills:
   - meta/reviewer
   - meta/checkpoint-protocol
   - meta/animation-runtime-selector
+  - meta/voice-performance-director
 
 orchestration:
   mode: executive-producer
@@ -137,6 +138,7 @@ stages:
       - Script beats are concise and animation-friendly
       - On-screen text remains readable and restrained
       - Timing structure leaves room for visual holds
+      - Narration-led scripts include concrete voice performance cues
       - Word count within +/-10% of duration target from selected concept
       - Script incorporates research data points where relevant
     success_criteria:
@@ -173,15 +175,20 @@ stages:
       - proposal_packet
     produces:
       - asset_manifest
-    required_tools:
-      - tts_selector
     optional_tools:
+      - tts_selector
       - image_selector
       - video_selector
       - math_animate
       - diagram_gen
       - code_snippet
+      - threejs_world
+      - threejs_asset_catalog
+      - atlas_3d
+      - fal_3d
+      - blender_world
       - music_gen
+      - fal_elevenlabs_music
     tools_available:
       - tts_selector
       - image_selector
@@ -189,13 +196,20 @@ stages:
       - math_animate
       - diagram_gen
       - code_snippet
+      - threejs_world
+      - threejs_asset_catalog
+      - atlas_3d
+      - fal_3d
+      - blender_world
       - music_gen
+      - fal_elevenlabs_music
     checkpoint_required: true
-    human_approval_default: false
+    human_approval_default: true
     review_focus:
       - Asset production path is explicit per scene
       - Reusable motifs and templates are prepared and referenced
       - Missing tool paths are surfaced honestly
+      - Narration assets apply the approved voice performance plan and sample settings
       - Total cost within approved budget from proposal_packet
       - "Layer 3 skills read for EVERY generation tool before writing prompts (check agent_skills field)"
       - "Clip duration maximized (prefer 10s over 5s) to reduce API calls and cost"
@@ -205,6 +219,7 @@ stages:
       - Schema-valid asset_manifest artifact
       - All referenced asset files exist on disk
       - layer3_skills_read list is present and includes all tools used for generation
+      - Real 3D-world briefs include semantic or wireframe diagnostic review before compose
 
   - name: edit
     skill: pipelines/animation/edit-director

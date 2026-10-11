@@ -30,6 +30,11 @@ from tools.base_tool import (
 )
 
 
+# Single source of truth for the default model. Referenced by both the input
+# schema and every code path that reads `model`, so estimate_cost / estimate_runtime
+# / execute can never silently diverge from the advertised default again.
+_DEFAULT_MODEL = "seedance_2_0"
+
 # Display model -> CLI job_set_type. Defaults favor Seedance 2.0 per the skill.
 # On Higgsfield, Seedance 2.0 "fast" is --mode fast on seedance_2_0 (not a separate JST).
 MODELS = {
@@ -98,7 +103,7 @@ class HiggsFieldVideo(BaseTool):
             "model": {
                 "type": "string",
                 "enum": list(MODELS.keys()),
-                "default": "seedance_2_0",
+                "default": _DEFAULT_MODEL,
                 "description": "CLI job_set_type. Defaults to Seedance 2.0 (preferred premium).",
             },
             "duration": {
@@ -137,7 +142,7 @@ class HiggsFieldVideo(BaseTool):
         return ToolStatus.AVAILABLE if is_installed() else ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        model = inputs.get("model", "seedance_2_0")
+        model = inputs.get("model", _DEFAULT_MODEL)
         duration = int(inputs.get("duration", 5) or 5)
         base = MODELS.get(model, {}).get("cost5", 0.20)
         return round(base * (duration / 5), 2)
@@ -149,7 +154,7 @@ class HiggsFieldVideo(BaseTool):
         if not is_installed():
             return ToolResult(success=False, error="Higgsfield CLI not found. " + INSTALL_INSTRUCTIONS)
 
-        model = inputs.get("model", "seedance_2_0")
+        model = inputs.get("model", _DEFAULT_MODEL)
         operation = inputs.get("operation", "text_to_video")
         model_meta = MODELS.get(model, {})
         jst = model_meta.get("jst", model)

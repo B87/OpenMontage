@@ -108,6 +108,7 @@ stages:
     produces:
       - asset_manifest
     optional_tools:
+      - heygen_avatar
       - talking_head
       - lip_sync
       - tts_selector
@@ -116,6 +117,7 @@ stages:
       - audio_enhance
       - video_selector
     tools_available:
+      - heygen_avatar
       - talking_head
       - lip_sync
       - tts_selector
@@ -124,7 +126,7 @@ stages:
       - audio_enhance
       - video_selector
     checkpoint_required: true
-    human_approval_default: false
+    human_approval_default: true
     review_focus:
       - Avatar generation path is explicit and honest (including no-avatar pivot if applicable)
       - Narration, subtitle, and background assets are aligned

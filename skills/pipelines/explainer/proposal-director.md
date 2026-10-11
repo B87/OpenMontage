@@ -40,6 +40,7 @@ A `render_runtime_selection` decision with only one option considered when both 
 | Tool registry | `support_envelope()` output | What's actually available right now |
 | Cost tracker | `tools/cost_tracker.py` | Cost estimation data |
 | Style playbooks | `styles/*.yaml` | Available visual styles |
+| Meta skill | `skills/meta/taste-direction.md` | Design read, taste dials, reference strategy |
 | User input | Topic, any preferences expressed | Creative direction |
 
 ## Process
@@ -175,6 +176,8 @@ Choose the structure that best fits the research findings:
 
 The existing playbooks (`clean-professional`, `flat-motion-graphics`, `minimalist-diagram`) are starting points, not destinations. Most videos should get a **custom visual identity** derived from the subject matter, audience, and tone. A video about coffee should feel warm and tactile. A video about cybersecurity should feel technical and urgent. A video about marine biology should feel deep and fluid.
 
+Before choosing or generating a playbook, read `skills/meta/taste-direction.md` and write a compact `production_plan.taste_profile`. The taste profile records the design read, `visual_variance`, `motion_intensity`, `information_density`, reference strategy, and anti-patterns. Use it to explain why the selected playbook, `composition_mode`, and asset strategy fit the brief.
+
 **How to design visual identity:**
 
 1. **Start from the content.** What colors does the subject naturally evoke? What textures, materials, lighting? A video about volcanoes should feel different from a video about meditation — in colors, motion speed, typography weight, and transition style.
@@ -194,6 +197,7 @@ The existing playbooks (`clean-professional`, `flat-motion-graphics`, `minimalis
 
 **Record your visual identity choices in the proposal_packet:**
 - `production_plan.playbook`: name of preset OR "custom"
+- `production_plan.taste_profile`: design read, taste dials, reference strategy, and anti-patterns
 - If custom, include color choices and font choices in the concept's `visual_approach`
 - Include the reasoning: "Warm amber palette because the subject is coffee craftsmanship"
 - Log as decision: `category: "playbook_selection"`
@@ -365,9 +369,9 @@ Music is a critical part of the video's feel. **Surface the music situation to t
 
 **Check music availability in this order:**
 
-1. **User music library (`music_library/`):** Check if this folder exists and contains tracks. If so, list available tracks with durations and let the user pick one.
-2. **Music generation APIs:** Check which music tools are available via the registry (`registry.get_by_capability("music_generation")`). Report their status honestly.
-3. **Stock music sources:** Note if stock music is available via any provider.
+1. **User music library:** Check `registry.get_by_capability("music_library")` and inspect `music_library/`. List tracks with durations.
+2. **Royalty-free search:** Check `registry.get_by_capability("music_search")`. Report providers, licensing constraints, and key requirements.
+3. **Music generation APIs:** Check `registry.get_by_capability("music_generation")`. Report status, quota, cost, and quality tradeoffs honestly.
 
 **Present to the user:**
 
@@ -377,15 +381,17 @@ MUSIC PLAN
 │   ├── cosmic_interstellar_space.mp3 (3:13) — ambient, cosmic
 │   ├── cinematic_epic.mp3 (2:45) — dramatic, building
 │   └── lofi_beat.mp3 (4:00) — chill, electronic
+├── Royalty-free search: [providers / unavailable]
 ├── AI generation: music_gen (ElevenLabs) — UNAVAILABLE (plan limit)
 └── Recommendation: Use "cosmic_interstellar_space.mp3" from your library
     OR provide a different track before asset generation
 
 Would you like to:
   (a) Use a track from your library (which one?)
-  (b) Provide a different track (drop it in music_library/)
-  (c) Generate one via API (if available)
-  (d) Proceed without music
+  (b) Search a royalty-free provider
+  (c) Provide a different track (drop it in music_library/)
+  (d) Generate one via API (if available)
+  (e) Proceed without music
 ```
 
 **If no music source is available:** Tell the user explicitly. Do NOT let this surface as a surprise at the asset stage. Offer the `music_library/` path so they can add a track before production starts.
@@ -535,8 +541,17 @@ If you encounter a generation technique, provider behavior, or prompting pattern
 
 This is especially important for:
 - **Video generation prompting** — models respond to specific vocabularies that change with each version
-- **Image model parameters** — optimal settings for FLUX, DALL-E, Imagen differ and evolve
+- **Image model parameters** — optimal settings for FLUX, GPT Image, Imagen differ and evolve
 - **Audio provider quirks** — voice cloning, music generation, and TTS each have model-specific best practices
 - **Remotion component patterns** — new composition techniques emerge as the framework evolves
 
 Do not rely on stale knowledge. When in doubt, search first.
+
+---
+
+## Gate Reminder (Binding)
+
+This stage gates on human approval (`human_approval_default: true`). After review passes:
+checkpoint with `status="awaiting_human"`, present the summary (the Backlot board renders
+the artifact), and **END YOUR TURN**. Do not start the next stage in the same response.
+Approval is per-gate — an earlier "go ahead" does not cover this gate.

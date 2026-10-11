@@ -89,11 +89,14 @@ like abandoned footage at compose time. Do not assume silence will earn
 itself. If the user has not mentioned music, ASSUME THEY WANT IT and pick:
 
 - user-provided track (put path in `music_plan.source_path`),
-- music library pick (list what's in `music_library/`),
+- music library pick (query `registry.get_by_capability("music_library")` and list tracks),
+- royalty-free search (query `registry.get_by_capability("music_search")`, report provider and license),
 - generated (name the tool and prompt seed with register),
 - explicit opt-out (`source: "none"` + `opt_out_reason`).
 
-**Warn the user if no music source is available.** Do not silently
+Before declaring no source available, also query
+`registry.get_by_capability("music_generation")`. **Warn the user if no music
+source is available.** Do not silently
 defer this — it becomes an expensive surprise at the asset stage.
 
 ### 5. Note End-Tag Intent (MANDATORY)
@@ -211,3 +214,12 @@ open for the scene director to decide per slot.
   the user explicitly says no.
 - Skipping the end-tag because "the images speak for themselves". They
   don't — the end-tag is the thesis. Propose one every time.
+
+---
+
+## Gate Reminder (Binding)
+
+This stage gates on human approval (`human_approval_default: true`). After review passes:
+checkpoint with `status="awaiting_human"`, present the summary (the Backlot board renders
+the artifact), and **END YOUR TURN**. Do not start the next stage in the same response.
+Approval is per-gate — an earlier "go ahead" does not cover this gate.
