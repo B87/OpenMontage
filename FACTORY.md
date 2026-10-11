@@ -28,6 +28,8 @@ channels/                     # PRIVATE repo, gitignored by the fork
       voice/VOICE.md          # pinned narrator voice + pronunciation rules
       logo/  fonts/  references/
     series/                   # one file per season: episode plan, shared elements, shorts plan
+    briefs/                   # showrunner episode briefs
+    analytics/                # showrunner performance pulls (JSON) and reviews (MD)
     platforms/                # one rules file per platform the channel publishes to
     content-log.md            # everything produced/published, newest first
     published/                # final exports, one folder per platform (ignored by the channels repo too)
@@ -64,6 +66,45 @@ After cloning the channels repo on a new machine, run `scripts/factory_link_play
    hashtags written to that platform's rules.
 8. **Log it:** add a line to `channels/<channel>/content-log.md`, update the
    episode's status in its `series/` file, and commit in the channels repo.
+
+## Orchestration: roles and hand-offs
+
+The **main session is the Editor/Producer**: it talks to the user, runs the
+pipeline (the pipeline's `executive-producer` skill + stage directors), spends
+budget, and renders. Subagents in `.claude/agents/` are focused, fresh-context
+specialists it calls at fixed points. Subagents cannot ask the user questions,
+so every approval goes through the main session.
+
+| Role | Agent | Owns |
+|---|---|---|
+| Editor / Producer | main session | pipeline execution, approvals with the user, spending, rendering, delivery |
+| Art Director | `art-director` | visual style, technique, composition, thumbnails |
+| Fact-checker | `fact-checker` | technical accuracy of every claim |
+| Showrunner | `showrunner` | topics, seasons, packaging, analytics, growth |
+
+**Flow for one episode**
+
+1. `showrunner` (mode `brief`) → `channels/<ch>/briefs/<slug>.md` → **user approves**.
+2. Editor runs research → script.
+3. `fact-checker` reviews the research brief + script → editor applies fixes → **user approves script**.
+4. Editor makes the scene plan + first 3 images → `art-director` (`scene_plan`, `first_images`) → **user approves**.
+5. Editor generates the remaining assets, edits, composes the render and the thumbnail candidates.
+6. `art-director` (`final_render`, `thumbnail`) and `showrunner` (mode `package`) → **user approves** → user uploads.
+7. 7 and 28 days after publishing: `showrunner` (mode `review`) → analytics + lessons → feeds the next brief.
+
+**Rules**
+- Hand-offs go through files, never chat memory: briefs, `projects/<id>/artifacts/`, and
+  `projects/<id>/reviews/<role>-<checkpoint>-<n>.md`.
+- Reviewers return `VERDICT: approve | revise | reject` with concrete fixes. At most **2 revision
+  rounds** per checkpoint; after that, the editor brings the disagreement to the user.
+- Run independent reviews in parallel (e.g. step 6).
+- Roles stay in their lane: reviewers write review files only, and the showrunner writes only inside `channels/<ch>/`.
+
+**YouTube analytics setup** (once per machine and channel): follow the steps in
+`python -m tools.analysis.youtube_analytics --help` / `tools/analysis/youtube_analytics.py`
+(Google Cloud OAuth client → `~/.config/openmontage/youtube/client_secret.json`), then
+`python -m tools.analysis.youtube_analytics auth --channel <channel>`. Tokens live outside
+both repos.
 
 ## Provider preference (credits are limited)
 
